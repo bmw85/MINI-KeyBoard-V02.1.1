@@ -1,8 +1,20 @@
-# MINI-KeyBoard-V02.1.1
-software for mini keyboards from aliexpress. Maybe someday I’ll properly decompile this software and release the actual source code
+# MINI KeyBoard
 
-# `Release` folder
-This version was provided by the seller on AliExpress.
+Windows-приложение для программирования USB mini keyboard / macro pad (VID `0x1189`, PID `0x8890`).
 
-# `Release2` folder
-Patched version with support for F13–F24 keys.
+## Папки
+
+| Папка | Содержимое |
+|-------|------------|
+| **[Replace](Replace/)** | Готовая сборка — запускайте `MINI KeyBoard.exe` отсюда |
+| **[Src](Src/)** | Исходный код, решение Visual Studio, лицензия |
+
+Подробности, функции и сборка из исходников — в [Src/README.md](Src/README.md).
+
+## Быстрый старт
+
+1. Откройте папку `Replace`
+2. Запустите `MINI KeyBoard.exe`
+3. Подключите клавиатуру по USB
+
+Требуется [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48).
