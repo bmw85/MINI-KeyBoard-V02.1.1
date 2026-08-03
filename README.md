@@ -6,7 +6,7 @@ Windows-приложение для программирования USB mini ke
 
 | Папка | Содержимое |
 |-------|------------|
-| **[Replace](Replace/)** | Готовая сборка — запускайте `MINI KeyBoard.exe` отсюда |
+| **[Replace](Replace3/)** | Готовая сборка — запускайте `MINI KeyBoard.exe` отсюда |
 | **[Src](Src/)** | Исходный код, решение Visual Studio, лицензия |
 
 Подробности, функции и сборка из исходников — в [Src/README.md](Src/README.md).
@@ -172,7 +172,7 @@ msbuild "MINI KeyBoard.sln" /t:Restore /p:Configuration=Release
 msbuild "MINI KeyBoard.sln" /p:Configuration=Release /p:Platform="Any CPU"
 ```
 
-Готовый файл появится в `Src\bin\Release\`. Для репозитория готовая сборка лежит в папке **`Replace/`** в корне.
+Готовый файл появится в `Src\bin\Release3\`. Для репозитория готовая сборка лежит в папке **`Replace3/`** в корне.
 
 ---
 
@@ -200,7 +200,7 @@ Src/
 ├── HID/
 └── HidLibrary/
 
-Replace/                # готовый exe + dll
+Replace3/                # готовый exe + dll
 └── MINI KeyBoard.exe
 ```
 
