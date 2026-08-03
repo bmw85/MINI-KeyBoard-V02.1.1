@@ -9,41 +9,43 @@ using System.Windows.Forms;
 namespace HIDTester;
 
 /// <summary>
-/// Registers Ctrl+Alt+Shift+F1..F12 hotkeys and launches mapped executables.
-/// Mappings stored in %AppData%\MINI KeyBoard\app_launches.json
+/// Listens for Ctrl+Alt+Shift+F1..F12 (USB or Bluetooth) and launches mapped executables.
+/// Uses a low-level keyboard hook — more reliable than RegisterHotKey for BT keyboards.
+/// Mappings: %AppData%\MINI KeyBoard\app_launches.json
 /// </summary>
-public sealed class AppLauncher : IMessageFilter, IDisposable
+public sealed class AppLauncher : IDisposable
 {
-  private const int WmHotkey = 0x0312;
-  private const uint ModAlt = 0x0001;
-  private const uint ModControl = 0x0002;
-  private const uint ModShift = 0x0004;
-  private const uint ModNorepeat = 0x4000;
+  private const int WhKeyboardLl = 13;
+  private const int WmKeyDown = 0x0100;
+  private const int WmSysKeyDown = 0x0104;
+  private const int WmKeyUp = 0x0101;
+  private const int WmSysKeyUp = 0x0105;
 
-  // Virtual-key codes for F1..F12
-  private static readonly uint[] VkFKeys =
-  {
-    0x70, 0x71, 0x72, 0x73, 0x74, 0x75,
-    0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B
-  };
+  private const int VkShift = 0x10;
+  private const int VkControl = 0x11;
+  private const int VkMenu = 0x12; // Alt
+  private const int VkF1 = 0x70;
 
   // HID usage IDs F1=58 .. F12=69
   public static byte HidCodeForFKey(int fIndex1Based)
   {
     if (fIndex1Based < 1 || fIndex1Based > 12) return 0;
-    return (byte)(57 + fIndex1Based); // F1=58
+    return (byte)(57 + fIndex1Based);
   }
 
   public static byte FunModifierCtrlAltShift => (byte)(1 | 2 | 4); // Ctrl|Shift|Alt
 
-  private readonly IntPtr _hwnd;
   private readonly Dictionary<int, string> _mappings = new Dictionary<int, string>();
+  private LowLevelKeyboardProc _proc;
+  private IntPtr _hookId = IntPtr.Zero;
   private bool _listening;
   private bool _disposed;
+  private int _lastLaunchF;
+  private long _lastLaunchTick;
 
   public AppLauncher(IntPtr hwnd)
   {
-    _hwnd = hwnd;
+    // hwnd kept for API compatibility; hook is process-wide
   }
 
   public static string ConfigDirectory
@@ -64,16 +66,33 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
   {
     if (_listening) return;
     Load();
-    RegisterAll();
-    Application.AddMessageFilter(this);
-    _listening = true;
+    _proc = HookCallback;
+    // For WH_KEYBOARD_LL, module handle of this process is required on older Windows;
+    // Zero also works on Win10+ for global LL hooks.
+    IntPtr hMod = IntPtr.Zero;
+    try
+    {
+      using (Process cur = Process.GetCurrentProcess())
+      using (ProcessModule mod = cur.MainModule)
+        hMod = GetModuleHandle(mod != null ? mod.ModuleName : null);
+    }
+    catch { /* ignore */ }
+
+    _hookId = SetWindowsHookEx(WhKeyboardLl, _proc, hMod, 0);
+    if (_hookId == IntPtr.Zero)
+      _hookId = SetWindowsHookEx(WhKeyboardLl, _proc, IntPtr.Zero, 0);
+    _listening = _hookId != IntPtr.Zero;
   }
 
   public void Stop()
   {
     if (!_listening) return;
-    Application.RemoveMessageFilter(this);
-    UnregisterAll();
+    if (_hookId != IntPtr.Zero)
+    {
+      UnhookWindowsHookEx(_hookId);
+      _hookId = IntPtr.Zero;
+    }
+    _proc = null;
     _listening = false;
   }
 
@@ -85,12 +104,6 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
     else
       _mappings[fKey1Based] = exePath.Trim();
     Save();
-    // Re-register so unused slots are free / used slots active
-    if (_listening)
-    {
-      UnregisterAll();
-      RegisterAll();
-    }
   }
 
   public string GetMapping(int fKey1Based)
@@ -99,16 +112,46 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
     return _mappings.TryGetValue(fKey1Based, out path) ? path : null;
   }
 
-  public bool PreFilterMessage(ref Message m)
+  private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
   {
-    if (m.Msg == WmHotkey)
+    if (nCode >= 0)
     {
-      int id = m.WParam.ToInt32();
-      if (id >= 1 && id <= 12)
-        Launch(id);
-      return true;
+      int msg = wParam.ToInt32();
+      if (msg == WmKeyDown || msg == WmSysKeyDown)
+      {
+        int vk = Marshal.ReadInt32(lParam);
+        TryLaunchFromKey(vk);
+      }
     }
-    return false;
+    return CallNextHookEx(_hookId, nCode, wParam, lParam);
+  }
+
+  private void TryLaunchFromKey(int vk)
+  {
+    if (vk < VkF1 || vk > VkF1 + 11)
+      return;
+
+    // Prefer live OS state — more reliable for Bluetooth (modifiers may arrive slightly apart)
+    if (!IsDown(VkControl) || !IsDown(VkMenu) || !IsDown(VkShift))
+      return;
+
+    int fIndex = (vk - VkF1) + 1;
+    if (!_mappings.ContainsKey(fIndex))
+      return;
+
+    // Debounce repeats / double reports from BT stacks
+    long now = Environment.TickCount;
+    if (fIndex == _lastLaunchF && unchecked((int)(now - _lastLaunchTick)) < 600)
+      return;
+    _lastLaunchF = fIndex;
+    _lastLaunchTick = now;
+
+    Launch(fIndex);
+  }
+
+  private static bool IsDown(int vk)
+  {
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
   }
 
   private void Launch(int fKey1Based)
@@ -120,11 +163,16 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
     {
       if (!File.Exists(path))
         return;
-      Process.Start(new ProcessStartInfo
+
+      // Launch without inheriting admin token when possible (works better for most apps)
+      if (!StartUnelevated(path))
       {
-        FileName = path,
-        UseShellExecute = true
-      });
+        Process.Start(new ProcessStartInfo
+        {
+          FileName = path,
+          UseShellExecute = true
+        });
+      }
     }
     catch
     {
@@ -132,20 +180,45 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
     }
   }
 
-  private void RegisterAll()
+  /// <summary>
+  /// Start process as normal user even if this app runs elevated (UAC).
+  /// </summary>
+  private static bool StartUnelevated(string path)
   {
-    uint mods = ModControl | ModAlt | ModShift | ModNorepeat;
-    for (int i = 1; i <= 12; i++)
+    try
     {
-      if (!_mappings.ContainsKey(i)) continue;
-      RegisterHotKey(_hwnd, i, mods, VkFKeys[i - 1]);
+      if (!IsElevated())
+        return false;
+
+      // explorer.exe re-launches the target at medium integrity
+      Process.Start(new ProcessStartInfo
+      {
+        FileName = "explorer.exe",
+        Arguments = "\"" + path + "\"",
+        UseShellExecute = true
+      });
+      return true;
+    }
+    catch
+    {
+      return false;
     }
   }
 
-  private void UnregisterAll()
+  private static bool IsElevated()
   {
-    for (int i = 1; i <= 12; i++)
-      UnregisterHotKey(_hwnd, i);
+    try
+    {
+      using (var id = System.Security.Principal.WindowsIdentity.GetCurrent())
+      {
+        var principal = new System.Security.Principal.WindowsPrincipal(id);
+        return principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+      }
+    }
+    catch
+    {
+      return false;
+    }
   }
 
   public void Load()
@@ -190,7 +263,6 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
 
   private void ParseSimpleJson(string json)
   {
-    // Expect: { "F1": "C:\\path\\app.exe", "F2": "..." }
     int i = 0;
     while (i < json.Length)
     {
@@ -268,9 +340,21 @@ public sealed class AppLauncher : IMessageFilter, IDisposable
     _disposed = true;
   }
 
-  [DllImport("user32.dll", SetLastError = true)]
-  private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+  private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
 
   [DllImport("user32.dll", SetLastError = true)]
-  private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+  private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  [return: MarshalAs(UnmanagedType.Bool)]
+  private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+  [DllImport("user32.dll", SetLastError = true)]
+  private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+  private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+  [DllImport("user32.dll")]
+  private static extern short GetAsyncKeyState(int vKey);
 }
