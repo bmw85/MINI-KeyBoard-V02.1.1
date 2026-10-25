@@ -56,7 +56,7 @@ Windows-приложение для программирования дешёв�
 
 | Раздел | Что можно назначить |
 |--------|---------------------|
-| **Клавиши** | A–Z, цифры, символы, F1–F12, Esc, Tab, Enter, Backspace, стрелки, Home / End / PgUp / PgDn, Insert / Delete, NumPad и др. |
+| **Клавиши** | A–Z, цифры, символы, F1–F24, Esc, Tab, Enter, Backspace, стрелки, Home / End / PgUp / PgDn, Insert / Delete, NumPad и др. |
 | **Ctrl Shift Alt** | Модификаторы Ctrl / Shift / Alt / Win и их сочетания, Shift+символы |
 | **Мультимедиа** | Play/Pause, громкость ±, следующий / предыдущий трек, Mute |
 | **Мышь** | ЛКМ / ПКМ / СКМ, колесо ±, Ctrl/Shift/Alt + колесо |
