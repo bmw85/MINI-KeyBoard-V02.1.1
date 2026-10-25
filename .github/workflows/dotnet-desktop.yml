@@ -34,13 +34,13 @@ jobs:
       - name: Restore NuGet packages
         shell: pwsh
         run: |
-          msbuild "Src\MINI KeyBoard.sln" /t:Restore /p:Configuration=Release /v:minimal
+          msbuild "Src\MINI KeyBoard.sln" /t:Restore /p:Configuration=Release /p:Platform="Any CPU" /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Release
         shell: pwsh
         run: |
-          msbuild "Src\MINI KeyBoard.sln" /t:Build /p:Configuration=Release /v:minimal
+          msbuild "Src\MINI KeyBoard.sln" /t:Build /p:Configuration=Release /p:Platform="Any CPU" /v:minimal
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Package Release
