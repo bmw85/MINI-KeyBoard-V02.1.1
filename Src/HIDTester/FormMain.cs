@@ -60,6 +60,8 @@ public class FormMain : Form
   private Button K1_Centre;
   private Button K1_Right;
   private TextBox SetText;
+  private TextBox txtHidBytes;
+  private string lastHidBytesText;
   private Button Key_Clear;
   private Button KEY8;
   private Button KEY7;
@@ -177,6 +179,7 @@ public class FormMain : Form
     // Style text boxes
     StyleTextBox(this.SetText);
     StyleTextBox(this.SetFunText);
+    CreateHidBytesField();
 
     // Style status label
     this.stateLabel.ForeColor = this.textColor;
@@ -197,6 +200,18 @@ public class FormMain : Form
     CreateDeviceInfoButton();
     CreateLayerIndicator();
     FixProfilePanelLayout();
+  }
+
+  private void CreateHidBytesField()
+  {
+    this.txtHidBytes = new TextBox();
+    this.txtHidBytes.Name = "txtHidBytes";
+    this.txtHidBytes.ReadOnly = true;
+    this.txtHidBytes.TabStop = false;
+    this.txtHidBytes.Text = "HID: —";
+    this.txtHidBytes.Cursor = Cursors.Default;
+    UiTheme.StyleTextBox(this.txtHidBytes);
+    this.Controls.Add(this.txtHidBytes);
   }
 
   /// <summary>
@@ -262,8 +277,8 @@ public class FormMain : Form
     }
 
     int knW = 78;
-    int knH = 28;
-    int gap = 4;
+    int knH = keyH;
+    int gap = keyGap;
     int colX = gridX + 4 * (keyW + keyGap) + 12;
     int k1Y = gridY;
     int k2Y = k1Y + knH + gap;
@@ -304,14 +319,17 @@ public class FormMain : Form
     {
       this.SetText.SetBounds(actionX, k1Y, actionW, 26);
       this.SetFunText.SetBounds(actionX, k1Y + 30, actionW, 26);
-      this.Download.SetBounds(actionX, k1Y + 62, 112, 34);
-      this.Key_Clear.SetBounds(actionX + 120, k1Y + 62, 112, 34);
+      this.txtHidBytes.SetBounds(actionX, k1Y + 60, actionW, 26);
+      this.Download.SetBounds(actionX, k1Y + 92, 112, 34);
+      this.Key_Clear.SetBounds(actionX + 120, k1Y + 92, 112, 34);
       UiTheme.StyleTextBox(this.SetText);
       UiTheme.StyleTextBox(this.SetFunText);
+      UiTheme.StyleTextBox(this.txtHidBytes);
       UiTheme.StyleActionButton(this.Download);
       UiTheme.StyleActionButton(this.Key_Clear);
       this.SetText.BringToFront();
       this.SetFunText.BringToFront();
+      this.txtHidBytes.BringToFront();
       this.Download.BringToFront();
       this.Key_Clear.BringToFront();
     }
@@ -1593,9 +1611,56 @@ public class FormMain : Form
 
   private byte lastDisplayedLayer = 0;
 
+  private static string FormatHidBytes(int offset, int count)
+  {
+    return BitConverter.ToString(FormMain.KeyParam.Data_Send_Buff, offset, count).Replace('-', ' ');
+  }
+
+  private static string GetHidBytesText()
+  {
+    byte[] data = FormMain.KeyParam.Data_Send_Buff;
+    if (data[(int)FormMain.KeyParam.KeySet_KeyNum] == 0)
+      return "HID: —";
+
+    int keyType = data[(int)FormMain.KeyParam.KeyType_Num] & 0x0F;
+    switch (keyType)
+    {
+      case 1:
+        int byteCount = Math.Max(1, FormMain.KeyParam.KEY_Char_Num - 4);
+        return "HID: " + FormatHidBytes(4, byteCount);
+      case 2:
+        return data[5] == 0 && data[6] == 0 ? "HID: —" : "HID: " + FormatHidBytes(5, 2);
+      case 3:
+        return "HID: " + FormatHidBytes(5, 5);
+      case 4:
+        return "HID: " + FormatHidBytes(5, 2);
+      case 8:
+        return "HID: " + FormatHidBytes(2, 1);
+      default:
+        return "HID: —";
+    }
+  }
+
+  private void UpdateHidBytesField()
+  {
+    if (this.txtHidBytes == null || this.txtHidBytes.IsDisposed)
+      return;
+
+    string text = GetHidBytesText();
+    if (text == this.lastHidBytesText)
+      return;
+
+    this.lastHidBytesText = text;
+    if (this.txtHidBytes.InvokeRequired)
+      this.txtHidBytes.Invoke(new Action(() => this.txtHidBytes.Text = text));
+    else
+      this.txtHidBytes.Text = text;
+  }
+
   private void Timer1_Elapsed(object sender, ElapsedEventArgs e)
   {
     this.AutoCheckUsb();
+    this.UpdateHidBytesField();
     if (FormMain.KeyParam.PageBet_Inte_Cmd != (byte) 0 && FormMain.KeyParam.PageBet_Inte_Cmd == (byte) 1)
     {
       FormMain.KeyParam.PageBet_Inte_Cmd = (byte) 0;
